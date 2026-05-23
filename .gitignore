@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints
+
+# PyTorch/Deep Learning
+*.pth
+*.pt
+*.onnx
+*.hdf5
+*.h5
+
+# Dataset and Kaggle
+data/
+datasets/
+archive.zip
+chest_xray/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
