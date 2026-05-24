@@ -1,0 +1,11 @@
+crewai
+langchain-google-genai
+kaggle
+matplotlib
+pandas
+Pillow
+scikit-learn
+
+streamlit
+
+markdown-pdf

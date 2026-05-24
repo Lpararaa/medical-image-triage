@@ -15,7 +15,6 @@ ENV/
 .ipynb_checkpoints
 
 # PyTorch/Deep Learning
-*.pth
 *.pt
 *.onnx
 *.hdf5
@@ -34,3 +33,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+temp_uploads/
+
