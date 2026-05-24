@@ -1,11 +1,9 @@
+torch
+torchvision
 crewai
+langchain-community
 langchain-google-genai
-kaggle
-matplotlib
-pandas
-Pillow
-scikit-learn
-
 streamlit
-
 markdown-pdf
+Pillow
+python-dotenv
