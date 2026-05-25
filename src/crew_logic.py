@@ -6,7 +6,6 @@ from PIL import Image
 from crewai import Agent, Task, Crew, Process, LLM
 from crewai.tools import BaseTool
 from langchain_community.tools.pubmed.tool import PubmedQueryRun
-from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 import datetime
 import json
@@ -79,14 +78,9 @@ class PubMedCustomTool(BaseTool):
             return f"Error executing PubMed search: {str(e)}. Please proceed with general medical knowledge if search is unavailable."
 
 # 4. Define the Agents
-def get_agents():
-    # Initialize LLMs with LangChain fallback logic using available models
-    primary_llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0.1)
-    backup_llm_1 = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0.1)
-    backup_llm_2 = ChatGoogleGenerativeAI(model="gemini-3.1-pro", temperature=0.1)
-    
-    # If the primary hits a rate limit, it automatically shifts to backup 1, then backup 2
-    llm_with_fallback = primary_llm.with_fallbacks([backup_llm_1, backup_llm_2])
+def get_agents(model_name="gemini/gemini-3.1-flash-lite"):
+    # Initialize standard CrewAI LLM
+    llm = LLM(model=model_name, temperature=0.1)
 
     diagnostician = Agent(
         role='Lead AI Diagnostician',
@@ -95,7 +89,7 @@ def get_agents():
         verbose=True,
         allow_delegation=False,
         tools=[PyTorchInferenceTool()],
-        llm=llm_with_fallback,
+        llm=llm,
         max_iter=3,
         max_retry_limit=2,
         step_callback=json_log_callback
@@ -108,7 +102,7 @@ def get_agents():
         verbose=True,
         allow_delegation=False,
         tools=[PubMedCustomTool()],
-        llm=llm_with_fallback,
+        llm=llm,
         max_iter=3,
         max_retry_limit=2,
         step_callback=json_log_callback
@@ -120,7 +114,7 @@ def get_agents():
         backstory='You are the Chief Medical Officer overseeing the triage process. You compile the work of your diagnostician and researcher into a final, professional report.',
         verbose=True,
         allow_delegation=True,
-        llm=llm_with_fallback,
+        llm=llm,
         max_iter=3,
         max_retry_limit=2,
         step_callback=json_log_callback
@@ -130,53 +124,89 @@ def get_agents():
 
 # 5. Functions to be called by Streamlit
 def generate_initial_report(image_path: str):
-    diagnostician, researcher, orchestrator = get_agents()
+    models_to_try = [
+        "gemini/gemini-3.1-flash-lite",
+        "gemini/gemini-3.5-flash",
+        "gemini/gemini-3.1-pro"
+    ]
 
-    diagnosis_task = Task(
-        description=f"Use your PyTorch tool to classify the chest X-ray located at: {image_path}. Return the exact diagnosis and confidence.",
-        expected_output="A short sentence with the diagnosis and confidence score.",
-        agent=diagnostician
-    )
+    for model_name in models_to_try:
+        try:
+            diagnostician, researcher, orchestrator = get_agents(model_name)
 
-    research_task = Task(
-        description="Take the diagnosis from the diagnostician. If the diagnosis is PNEUMONIA, search for standard medical guidelines and treatment protocols for Pneumonia. If NORMAL, search for standard discharge and wellness advice.",
-        expected_output="A summary of clinical guidelines matching the diagnosis.",
-        agent=researcher
-    )
+            diagnosis_task = Task(
+                description=f"Use your PyTorch tool to classify the chest X-ray located at: {image_path}. Return the exact diagnosis and confidence.",
+                expected_output="A short sentence with the diagnosis and confidence score.",
+                agent=diagnostician
+            )
 
-    current_date = datetime.date.today().strftime("%B %d, %Y")
-    report_task = Task(
-        description=f"Compile the preliminary diagnosis and the clinical guidelines into a structured 'Medical Triage Report'. The report MUST include a section for 'Physician Notes'. Make sure to use the current date in the report header: {current_date}.",
-        expected_output="A markdown-formatted Medical Triage Report.",
-        agent=orchestrator,
-        human_input=False  # Disabled for Streamlit; handled via chat UI
-    )
+            research_task = Task(
+                description="Take the diagnosis from the diagnostician. If the diagnosis is PNEUMONIA, search for standard medical guidelines and treatment protocols for Pneumonia. If NORMAL, search for standard discharge and wellness advice.",
+                expected_output="A summary of clinical guidelines matching the diagnosis.",
+                agent=researcher
+            )
 
-    crew = Crew(
-        agents=[diagnostician, researcher, orchestrator],
-        tasks=[diagnosis_task, research_task, report_task],
-        process=Process.sequential,
-        max_rpm=10
-    )
+            current_date = datetime.date.today().strftime("%B %d, %Y")
+            report_task = Task(
+                description=f"Compile the preliminary diagnosis and the clinical guidelines into a structured 'Medical Triage Report'. The report MUST include a section for 'Physician Notes'. Make sure to use the current date in the report header: {current_date}.",
+                expected_output="A markdown-formatted Medical Triage Report.",
+                agent=orchestrator,
+                human_input=False  # Disabled for Streamlit; handled via chat UI
+            )
 
-    result = crew.kickoff()
-    return result.raw
+            crew = Crew(
+                agents=[diagnostician, researcher, orchestrator],
+                tasks=[diagnosis_task, research_task, report_task],
+                process=Process.sequential,
+                max_rpm=10
+            )
+
+            result = crew.kickoff()
+            return result.raw
+            
+        except Exception as e:
+            error_str = str(e).lower()
+            if "429" in error_str or "quota" in error_str or "exhausted" in error_str or "rate limit" in error_str or "403" in error_str:
+                print(f"Rate limit or quota hit for {model_name}. Falling back to next model...")
+                continue
+            else:
+                raise e
+                
+    raise Exception("All fallback language models were exhausted due to API limits. Please try again later.")
 
 def revise_report(draft_report: str, feedback: str):
-    _, _, orchestrator = get_agents()
+    models_to_try = [
+        "gemini/gemini-3.1-flash-lite",
+        "gemini/gemini-3.5-flash",
+        "gemini/gemini-3.1-pro"
+    ]
 
-    revision_task = Task(
-        description=f"You are given a drafted Medical Triage Report and some feedback from the attending physician.\n\nDraft Report:\n{draft_report}\n\nPhysician Feedback: {feedback}\n\nRevise the report incorporating the feedback. Keep the professional formatting intact.",
-        expected_output="The fully revised markdown-formatted Medical Triage Report.",
-        agent=orchestrator
-    )
+    for model_name in models_to_try:
+        try:
+            _, _, orchestrator = get_agents(model_name)
 
-    crew = Crew(
-        agents=[orchestrator],
-        tasks=[revision_task],
-        process=Process.sequential,
-        max_rpm=10
-    )
+            revision_task = Task(
+                description=f"You are given a drafted Medical Triage Report and some feedback from the attending physician.\n\nDraft Report:\n{draft_report}\n\nPhysician Feedback: {feedback}\n\nRevise the report incorporating the feedback. Keep the professional formatting intact.",
+                expected_output="The fully revised markdown-formatted Medical Triage Report.",
+                agent=orchestrator
+            )
 
-    result = crew.kickoff()
-    return result.raw
+            crew = Crew(
+                agents=[orchestrator],
+                tasks=[revision_task],
+                process=Process.sequential,
+                max_rpm=10
+            )
+
+            result = crew.kickoff()
+            return result.raw
+            
+        except Exception as e:
+            error_str = str(e).lower()
+            if "429" in error_str or "quota" in error_str or "exhausted" in error_str or "rate limit" in error_str or "403" in error_str:
+                print(f"Rate limit or quota hit for {model_name}. Falling back to next model...")
+                continue
+            else:
+                raise e
+                
+    raise Exception("All fallback language models were exhausted due to API limits. Please try again later.")
