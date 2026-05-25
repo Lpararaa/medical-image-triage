@@ -6,6 +6,7 @@ from PIL import Image
 from crewai import Agent, Task, Crew, Process, LLM
 from crewai.tools import BaseTool
 from langchain_community.tools.pubmed.tool import PubmedQueryRun
+from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 import datetime
 import json
@@ -24,20 +25,7 @@ def json_log_callback(step_output):
 
 load_dotenv()
 
-# 1. Define the exact same PyTorch architecture as train.py
-class PneumoniaCNN(nn.Module):
-    def __init__(self):
-        super(PneumoniaCNN, self).__init__()
-        self.base_model = models.resnet18(weights=None)
-        num_ftrs = self.base_model.fc.in_features
-        self.base_model.fc = nn.Sequential(
-            nn.Dropout(0.5),
-            nn.Linear(num_ftrs, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        return self.base_model(x)
+# 1. (Removed custom PneumoniaCNN class to align dictionary keys)
 
 # 2. Define the Custom PyTorch Inference Tool
 class PyTorchInferenceTool(BaseTool):
@@ -47,7 +35,11 @@ class PyTorchInferenceTool(BaseTool):
     def _run(self, image_path: str) -> str:
         try:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            model = PneumoniaCNN().to(device)
+            model = models.resnet18(weights=None)
+            num_ftrs = model.fc.in_features
+            model.fc = nn.Linear(num_ftrs, 2)
+            model = model.to(device)
+            
             model_path = os.path.join(os.path.dirname(__file__), "..", "models", "pneumonia_resnet18.pth")
             model.load_state_dict(torch.load(model_path, map_location=device))
             model.eval()
@@ -63,10 +55,12 @@ class PyTorchInferenceTool(BaseTool):
 
             with torch.no_grad():
                 output = model(img_t)
-                prob = output.item()
+                probabilities = torch.nn.functional.softmax(output, dim=1)[0]
+                prob_normal = probabilities[0].item()
+                prob_pneumonia = probabilities[1].item()
             
-            prediction = "PNEUMONIA" if prob > 0.5 else "NORMAL"
-            confidence = prob if prediction == "PNEUMONIA" else 1.0 - prob
+            prediction = "PNEUMONIA" if prob_pneumonia > prob_normal else "NORMAL"
+            confidence = prob_pneumonia if prediction == "PNEUMONIA" else prob_normal
             return f"Diagnosis: {prediction} (Confidence: {confidence*100:.2f}%)"
         except Exception as e:
             return f"Error classifying image: {str(e)}. Proceed by explicitly stating the image could not be analyzed due to technical issues."
@@ -86,7 +80,13 @@ class PubMedCustomTool(BaseTool):
 
 # 4. Define the Agents
 def get_agents():
-    llm = LLM(model="gemini/gemini-3.1-flash-lite", temperature=0.1)
+    # Initialize LLMs with LangChain fallback logic
+    primary_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.1)
+    backup_llm_1 = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.1)
+    backup_llm_2 = ChatGoogleGenerativeAI(model="gemini-1.0-pro", temperature=0.1)
+    
+    # If the primary hits a rate limit, it automatically shifts to backup 1, then backup 2
+    llm_with_fallback = primary_llm.with_fallbacks([backup_llm_1, backup_llm_2])
 
     diagnostician = Agent(
         role='Lead AI Diagnostician',
@@ -95,7 +95,7 @@ def get_agents():
         verbose=True,
         allow_delegation=False,
         tools=[PyTorchInferenceTool()],
-        llm=llm,
+        llm=llm_with_fallback,
         max_iter=3,
         max_retry_limit=2,
         step_callback=json_log_callback
@@ -108,7 +108,7 @@ def get_agents():
         verbose=True,
         allow_delegation=False,
         tools=[PubMedCustomTool()],
-        llm=llm,
+        llm=llm_with_fallback,
         max_iter=3,
         max_retry_limit=2,
         step_callback=json_log_callback
@@ -120,7 +120,7 @@ def get_agents():
         backstory='You are the Chief Medical Officer overseeing the triage process. You compile the work of your diagnostician and researcher into a final, professional report.',
         verbose=True,
         allow_delegation=True,
-        llm=llm,
+        llm=llm_with_fallback,
         max_iter=3,
         max_retry_limit=2,
         step_callback=json_log_callback

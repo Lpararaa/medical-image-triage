@@ -79,14 +79,21 @@ if st.session_state.report:
         
         # Generate PDF
         try:
+            import uuid
             pdf = MarkdownPdf(toc_level=0)
             pdf.add_section(Section(st.session_state.report, toc=False))
             
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-                pdf.save(tmp_pdf.name)
+            tmp_pdf_name = os.path.join("temp_uploads", f"report_{uuid.uuid4().hex}.pdf")
+            os.makedirs("temp_uploads", exist_ok=True)
+            pdf.save(tmp_pdf_name)
                 
-            with open(tmp_pdf.name, "rb") as f:
+            with open(tmp_pdf_name, "rb") as f:
                 pdf_bytes = f.read()
+                
+            try:
+                os.remove(tmp_pdf_name)
+            except Exception:
+                pass
                 
             st.download_button(
                 label="📄 Download Medical Report as PDF",
