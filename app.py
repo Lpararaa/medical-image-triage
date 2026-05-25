@@ -82,9 +82,13 @@ if st.session_state.report:
             import uuid
             pdf = MarkdownPdf(toc_level=0)
             
-            # Embed the image into the markdown before generating PDF
-            img_path = os.path.abspath(st.session_state.image_path).replace('\\', '/')
-            pdf_markdown = f"![Chest X-ray](file:///{img_path})\n\n---\n\n" + st.session_state.report
+            # Embed the image into the markdown as a base64 string
+            import base64
+            with open(st.session_state.image_path, "rb") as image_file:
+                encoded_string = base64.b64encode(image_file.read()).decode()
+            img_ext = st.session_state.image_path.split('.')[-1].lower()
+            img_type = "png" if img_ext == "png" else "jpeg"
+            pdf_markdown = f"![Chest X-ray](data:image/{img_type};base64,{encoded_string})\n\n---\n\n" + st.session_state.report
             
             pdf.add_section(Section(pdf_markdown, toc=False))
             
