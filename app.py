@@ -81,7 +81,12 @@ if st.session_state.report:
         try:
             import uuid
             pdf = MarkdownPdf(toc_level=0)
-            pdf.add_section(Section(st.session_state.report, toc=False))
+            
+            # Embed the image into the markdown before generating PDF
+            img_path = os.path.abspath(st.session_state.image_path).replace('\\', '/')
+            pdf_markdown = f"![Chest X-ray](file:///{img_path})\n\n---\n\n" + st.session_state.report
+            
+            pdf.add_section(Section(pdf_markdown, toc=False))
             
             tmp_pdf_name = os.path.join("temp_uploads", f"report_{uuid.uuid4().hex}.pdf")
             os.makedirs("temp_uploads", exist_ok=True)
