@@ -80,10 +80,10 @@ class PubMedCustomTool(BaseTool):
 
 # 4. Define the Agents
 def get_agents():
-    # Initialize LLMs with LangChain fallback logic
-    primary_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.1)
-    backup_llm_1 = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.1)
-    backup_llm_2 = ChatGoogleGenerativeAI(model="gemini-1.0-pro", temperature=0.1)
+    # Initialize LLMs with LangChain fallback logic using available models
+    primary_llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0.1)
+    backup_llm_1 = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0.1)
+    backup_llm_2 = ChatGoogleGenerativeAI(model="gemini-3.1-pro", temperature=0.1)
     
     # If the primary hits a rate limit, it automatically shifts to backup 1, then backup 2
     llm_with_fallback = primary_llm.with_fallbacks([backup_llm_1, backup_llm_2])
