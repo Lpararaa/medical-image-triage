@@ -8,6 +8,19 @@ from crewai.tools import BaseTool
 from langchain_community.tools.pubmed.tool import PubmedQueryRun
 from dotenv import load_dotenv
 import datetime
+import json
+
+def json_log_callback(step_output):
+    try:
+        log_file = os.path.join(os.path.dirname(__file__), "..", "agent_logs.jsonl")
+        log_data = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "action_output": str(step_output)
+        }
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_data) + "\n")
+    except Exception:
+        pass
 
 load_dotenv()
 
@@ -84,7 +97,8 @@ def get_agents():
         tools=[PyTorchInferenceTool()],
         llm=llm,
         max_iter=3,
-        max_retry_limit=2
+        max_retry_limit=2,
+        step_callback=json_log_callback
     )
 
     researcher = Agent(
@@ -96,7 +110,8 @@ def get_agents():
         tools=[PubMedCustomTool()],
         llm=llm,
         max_iter=3,
-        max_retry_limit=2
+        max_retry_limit=2,
+        step_callback=json_log_callback
     )
 
     orchestrator = Agent(
@@ -107,7 +122,8 @@ def get_agents():
         allow_delegation=True,
         llm=llm,
         max_iter=3,
-        max_retry_limit=2
+        max_retry_limit=2,
+        step_callback=json_log_callback
     )
     
     return diagnostician, researcher, orchestrator
